@@ -8,15 +8,15 @@ package PIH {
   use JSON::MaybeXS;
   use Fcntl ':seek';
   use autodie;
-  
-  my $file_extensions = 'jpg|jpeg|tiff|tif|raw|gif|png|bmp|mov|mp4|mkv|avi';
-  
+
+  my $file_extensions = 'jpg|jpeg|tiff|tif|raw|gif|png|psd|heif|heic|webp|bmp|svg|eps|ai|avi|mp5|mpg|mov|mkv|wmv|webm|flv|3gp';
+
   my $username = getlogin() || scalar getpwuid($<) || $ENV{LOGNAME} || $ENV{USER};
   my $homedir  = $ENV{'HOME'} || "/home/$username";
-  
-  my $dbfile = '/tmp/photos.sqlite';
+  my $dbfile   = '/tmp/photos.sqlite';
   
   my $local_photos_dir = "$homedir/Pictures";
+  my $remote_photos_dir;
   
   setup_db();
   
@@ -27,10 +27,14 @@ package PIH {
   }
 
   sub debug_remote_photos_dir {
+    return $remote_photos_dir if $remote_photos_dir;
     my @dcims = find_dcims();
     warn "multiple digical camera devices!" if @dcims > 1;
     return $dcims[0];
   }
+
+  sub set_local_photos_dir  ($newdir) { $local_photos_dir  = $newdir; }
+  sub set_remote_photos_dir ($newdir) { $remote_photos_dir = $newdir; }
   
   sub get_last_char { substr($_[0], -1, 1) }
   
@@ -167,8 +171,8 @@ package PIH {
   sub index_files ($where, $callback = undef) {
     my $dir; 
     if ($where eq 'remote') {
-      my @dcims = find_dcims() or die 'No camera drives found.';
-      die 'FOund multiple drives' unless @dcims == 1;
+      my @dcims = find_dcims() or die "No camera devices or media cards found.\n";
+      die 'Found multiple drives' unless @dcims == 1;
       $dir = $dcims[0];
     } elsif ($where eq 'local') {
       $dir = $local_photos_dir;
@@ -183,7 +187,7 @@ package PIH {
     my @files = File::Find::Rule
       ->file
       ->nonempty
-      ->name(qr/^[^\.].+\.$file_extensions$/i)
+      ->name(qr/^[^\.].+\.($file_extensions)$/i)
       ->in($dir);
 
     my $count = scalar @files;  
@@ -201,26 +205,23 @@ package PIH {
     
     return scalar @files || -1;
   } 
-  
+
+  sub base_to_digest_method_name ($base) {
+    return 'b64digest' if $base == 64;
+    return 'hexdigest' if $base == 16;
+    return 'digest'    if $base ==  2;
+    die 'Unsupported base for Digest::MD5: ' . $base;
+  };
+
   sub md5_file ($filename, $base = 64) {
-    my $method;
-    $method = 'b64digest' if $base == 64;
-    $method = 'hexdigest' if $base == 16;
-    $method = 'digest'    if $base == 2;
-    die "Unsupported base: $base" if !$method;
-    
+    my $md5_method = base_to_digest_method_name($base);
     open my $fh, '<', $filename || die "Cannot open $filename!";
     binmode $fh;
-    return Digest::MD5->new->addfile($fh)->$method;
+    return Digest::MD5->new->addfile($fh)->$md5_method;
   }
   
   sub md5_file_sample ($filename, $base = 64) {
-    my $method;
-    $method = 'b64digest' if $base == 64;
-    $method = 'hexdigest' if $base == 16;
-    $method = 'digest'    if $base == 2;
-    die "Unsupported base: $base" if !$method;
-
+    my $md5_method = base_to_digest_method_name($base);
     my $md5 = Digest::MD5->new;
     open my $fh, '<', $filename || die "Cannot open $filename!";
     binmode $fh;
@@ -238,17 +239,20 @@ package PIH {
       seek $fh, $step_size, SEEK_CUR if $step_size > 0;
     }
     
-    return $md5->$method;
+    return $md5->$md5_method;
   }
    
   sub find_dcims {
+    return ($remote_photos_dir) if $remote_photos_dir;
     my $base;
     if (-d '/Volumes') {
       $base = '/Volumes';
     } elsif (-d '/media/'.$username) {
       $base = '/media/'.$username;
+    } elsif (-d '/media') {
+      $base = '/media';
     } else {
-      warn "Cannot find any removable media in /Volumes or /media/username.";
+      warn "Cannot find any removable media in /Volumes or /media.";
       return;
     }
     my @dirs = File::Find::Rule->directory->name('DCIM')->maxdepth(3)->in($base);
@@ -286,7 +290,6 @@ package PIH {
       push @possible_dups, \@row;
     }
     $sth->finish;
-    #warn "Possible duplicates: " . join("\n", map { $_->[1] } @possible_dups) . "\n";
 
     # File sizes are duplicates, check md5s next
     my @duplicate_filenames;
@@ -294,18 +297,20 @@ package PIH {
       my ($rem_id, $rem_fn, $loc_id, $loc_fn) = @$row;
 
       my $loc_md5 = md5_file_sample($loc_fn);
-      $dbh->do('UPDATE local_photos SET md5_b64_spl = ? WHERE id = ?', undef, $loc_md5, $loc_id);
-
       my $rem_md5 = md5_file_sample($rem_fn);
+
+      $dbh->do('UPDATE local_photos  SET md5_b64_spl = ? WHERE id = ?', undef, $loc_md5, $loc_id);
       $dbh->do('UPDATE remote_photos SET md5_b64_spl = ? WHERE id = ?', undef, $rem_md5, $rem_id);
 
-      die 'Error!'
-        unless length $loc_md5 and length $rem_md5;
+      die 'Error!' unless length $loc_md5 and length $rem_md5;
 
       if ($loc_md5 eq $rem_md5) {
         push @duplicate_filenames, $rem_fn;
         $dbh->do('UPDATE remote_photos SET on_local = 1 where id = ?', undef, $rem_id);
       }
+      # else {
+      #  $dbh->do('UPDATE remote_photos SET on_local = 0 where id = ?', undef, $rem_id);
+      #}
     }
 
     return @duplicate_filenames;

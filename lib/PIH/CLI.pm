@@ -1,16 +1,10 @@
 use v5.34;
 use experimental 'signatures';
+use feature 'try';
 package PIH::CLI {
 
   sub main {
     index_remote_files();
-    exit 0;
-
-    say 'Welcome to the Photo Import Helper!';
-    say 'Please Select an Option:';
-    say '  1. Process and Import from Memory Card';
-    say '  2. Clean Up Memory Card';
-    say '  3. Quit';
   }
 
   sub index_remote_files {
@@ -26,13 +20,19 @@ package PIH::CLI {
 
     say 'Analyzing file list...';
 
-    #my @remote_on_local = PIH::remote_files_on_local();
-    #say 'The following files on your memory card HAVE ALREADY been copied to your PC:';
-    #say for @remote_on_local;
+    my @remote_on_local = PIH::remote_files_on_local();
+    if (@remote_on_local) {
+      say 'The following files on your memory card HAVE ALREADY been copied to your PC:';
+      say for @remote_on_local;
+      say '';
+    }
 
     my @remote_novel = PIH::remote_files_not_on_local();
-    say 'The following files on your memory card are NEW and have yet to be copied to your PC:';
-    say for @remote_novel;
+    if (@remote_novel) {
+      say 'The following files on your memory card are NEW and have yet to be copied to your PC:';
+      say for @remote_novel;
+      say '';
+    }
   }
 }
 
