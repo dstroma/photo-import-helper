@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Photo Import Helper
+Comment=Help import photos from memory card to computer
+Exec=/home/zorinuser/photo-import-helper/bin/app.pl
+Icon=/home/zorinuser/photo-import-helper/icon/film.png
+Type=Application
+Categories=Application;
