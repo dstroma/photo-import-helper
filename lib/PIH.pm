@@ -9,17 +9,28 @@ package PIH {
   use Fcntl ':seek';
   use autodie;
   
-  my $file_extensions = 'jpg|jpeg|tiff|tif|raw|gif|png|bmp|mov|mp4';
+  my $file_extensions = 'jpg|jpeg|tiff|tif|raw|gif|png|bmp|mov|mp4|mkv|avi';
   
   my $username = getlogin() || scalar getpwuid($<) || $ENV{LOGNAME} || $ENV{USER};
+  my $homedir  = $ENV{'HOME'} || "/home/$username";
   
   my $dbfile = '/tmp/photos.sqlite';
   
-  my $local_photos_dir = "/home/$username/Pictures";
+  my $local_photos_dir = "$homedir/Pictures";
   
   setup_db();
   
   #####################################################################
+
+  sub debug_local_photos_dir {
+    $local_photos_dir;
+  }
+
+  sub debug_remote_photos_dir {
+    my @dcims = find_dcims();
+    warn "multiple digical camera devices!" if @dcims > 1;
+    return $dcims[0];
+  }
   
   sub get_last_char { substr($_[0], -1, 1) }
   
@@ -46,11 +57,12 @@ package PIH {
     $dbh->do('DROP TABLE IF EXISTS remote_photos');
     $dbh->do('
       CREATE TABLE remote_photos (
-        id             integer     PRIMARY KEY,
-        filename       text        UNIQUE,
-        size           integer,
-        sample_md5_b64 text,
-        md5_b64        text
+        id          integer     PRIMARY KEY,
+        filename    text        UNIQUE,
+        size        integer,
+        md5_b64     text,
+        md5_b64_spl text,
+        on_local    boolean     DEFAULT 0
       );
     ');
     $dbh->do('CREATE INDEX remote_photos_size_index ON remote_photos (size)');    
@@ -60,11 +72,11 @@ package PIH {
     $dbh->do('DROP TABLE IF EXISTS local_photos');
     $dbh->do('
       CREATE TABLE local_photos (
-        id             integer     PRIMARY KEY,
-        filename       text        UNIQUE,
-        size           integer,
-        sample_md5_b64 text,
-        md5_b64        text
+        id          integer     PRIMARY KEY,
+        filename    text        UNIQUE,
+        size        integer,
+        md5_b64     text,
+        md5_b64_spl text
       );
     ');
     $dbh->do('CREATE INDEX local_photos_size_index ON local_photos (size)');
@@ -176,18 +188,18 @@ package PIH {
 
     my $count = scalar @files;  
     my $cur   = 1;
-    my $sth = $dbh->prepare("INSERT INTO $table (filename, size, sample_md5_b64) VALUES (?,?,?)");
+    my $sth = $dbh->prepare("INSERT INTO $table (filename, size) VALUES (?,?)");
     foreach my $file (@files) {
       $callback->("$cur of $count")
         if $callback and ref $callback and (
-          $cur == 0 or $cur == $count or $cur % 10 == 0
+          $cur == 0 or $cur == $count or $cur % 20 == 0
         ); # don't flood
-      $sth->execute($file, -s $file, md5_file_sample($file, 64));
+      $sth->execute($file, -s $file);
       $cur++;
     }
     $sth->finish;
     
-    return 1;
+    return scalar @files || -1;
   } 
   
   sub md5_file ($filename, $base = 64) {
@@ -230,7 +242,15 @@ package PIH {
   }
    
   sub find_dcims {
-    my $base = '/media/'.$username;
+    my $base;
+    if (-d '/Volumes') {
+      $base = '/Volumes';
+    } elsif (-d '/media/'.$username) {
+      $base = '/media/'.$username;
+    } else {
+      warn "Cannot find any removable media in /Volumes or /media/username.";
+      return;
+    }
     my @dirs = File::Find::Rule->directory->name('DCIM')->maxdepth(3)->in($base);
     return @dirs;
   }
@@ -238,13 +258,13 @@ package PIH {
   sub duplicate_local_files {
     index_files('local');
     my $sth = $dbh->prepare('
-      SELECT outer.filename, outer.sample_md5_b64 FROM local_photos AS outer
-      WHERE outer.sample_md5_b64 IN (
-        SELECT inner.sample_md5_b64 FROM local_photos AS inner
-        GROUP BY inner.sample_md5_b64
+      SELECT outer.filename, outer.md5_b64 FROM local_photos AS outer
+      WHERE outer.md5_b64 IN (
+        SELECT inner.md5_b64 FROM local_photos AS inner
+        GROUP BY inner.md5_b64
         HAVING count(1) > 1
       )
-      ORDER BY outer.sample_md5_b64
+      ORDER BY outer.md5_b64
     ');
   }
   
@@ -252,47 +272,61 @@ package PIH {
     my ($count) = $dbh->selectrow_array('SELECT COUNT(1) FROM remote_photos');
     return $count;
   }
-  
+
   sub remote_files_on_local {
-    # Search for duplicates
     my $sth = $dbh->prepare('
-      SELECT DISTINCT rem.filename
-      FROM  remote_photos AS rem, local_photos AS loc
+      SELECT rem.id, rem.filename, loc.id, loc.filename
+      FROM remote_photos AS rem, local_photos AS loc
       WHERE rem.size = loc.size
-      AND   rem.sample_md5_b64 = loc.sample_md5_b64
     ');
     $sth->execute;
-    
-    my @duplicates = ();
-    while (my ($fn) = $sth->fetchrow_array) {
-      push @duplicates, $fn;
+
+    my @possible_dups = ();
+    while (my @row = $sth->fetchrow_array) {
+      push @possible_dups, \@row;
     }
     $sth->finish;
-    
-    # Confirm duplicates are actually duplicates
-    
-    return @duplicates;
+    #warn "Possible duplicates: " . join("\n", map { $_->[1] } @possible_dups) . "\n";
+
+    # File sizes are duplicates, check md5s next
+    my @duplicate_filenames;
+    foreach my $row (@possible_dups) {
+      my ($rem_id, $rem_fn, $loc_id, $loc_fn) = @$row;
+
+      my $loc_md5 = md5_file_sample($loc_fn);
+      $dbh->do('UPDATE local_photos SET md5_b64_spl = ? WHERE id = ?', undef, $loc_md5, $loc_id);
+
+      my $rem_md5 = md5_file_sample($rem_fn);
+      $dbh->do('UPDATE remote_photos SET md5_b64_spl = ? WHERE id = ?', undef, $rem_md5, $rem_id);
+
+      die 'Error!'
+        unless length $loc_md5 and length $rem_md5;
+
+      if ($loc_md5 eq $rem_md5) {
+        push @duplicate_filenames, $rem_fn;
+        $dbh->do('UPDATE remote_photos SET on_local = 1 where id = ?', undef, $rem_id);
+      }
+    }
+
+    return @duplicate_filenames;
   }
-  
+
   sub remote_files_not_on_local {  
     # Search for non-duplicates
+    # Best way to find non-duplicates is to first find duplicates
+    remote_files_on_local();
     my $sth = $dbh->prepare('
-      SELECT rem.filename
-      FROM  remote_photos AS rem
-      WHERE rem.sample_md5_b64 NOT IN (
-        SELECT loc.sample_md5_b64 FROM local_photos AS loc 
-        WHERE loc.size = rem.size AND loc.sample_md5_b64 = rem.sample_md5_b64
-      )
+      SELECT filename FROM remote_photos AS rem WHERE on_local = 0
     ');
     $sth->execute;
     
-    my @files = ();
-    while (my ($fn) = $sth->fetchrow_array) {
-      push @files, $fn;
+    my @filename_list = ();
+    while (my ($filename) = $sth->fetchrow_array) {
+      push @filename_list, $filename;
     }
     $sth->finish;
     
-    return @files;
+    return @filename_list;
   }
   
   sub copy_new_remote_photos_to_local (%params) {
