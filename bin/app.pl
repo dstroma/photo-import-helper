@@ -12,8 +12,8 @@ my $remote_dir;
 
 GetOptions(
   'cli'          => \$cli,
-  'remote_dir=s' => \$remote_dir,
-  'local_dir=s'  => \$local_dir
+  'remote-dir=s' => \$remote_dir,
+  'local-dir=s'  => \$local_dir
 );
 
 PIH::set_remote_photos_dir($remote_dir) if $remote_dir;

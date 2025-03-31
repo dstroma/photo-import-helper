@@ -33,7 +33,26 @@ package PIH::CLI {
       say for @remote_novel;
       say '';
     }
+
+    my @duplicated_local = PIH::duplicate_local_files();
+    if (@duplicated_local) {
+      say 'The following files on your computer are exact duplicates:';
+      my $prev_md5 = '';
+      foreach my $h (@duplicated_local) {
+        if ($h->{md5_b64} ne $prev_md5) {
+          say '';
+          say $h->{filename} . ' is a duplicate of:';
+          $prev_md5 = $h->{md5_b64};
+        } else {
+          say $h->{filename};
+        }
+      }
+      say '';
+    }
+
+    say 'Done.';
   }
+
 }
 
 1;

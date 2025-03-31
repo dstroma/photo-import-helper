@@ -192,6 +192,7 @@ package PIH {
 
     my $count = scalar @files;  
     my $cur   = 1;
+    $dbh->do("DELETE FROM $table");
     my $sth = $dbh->prepare("INSERT INTO $table (filename, size) VALUES (?,?)");
     foreach my $file (@files) {
       $callback->("$cur of $count")
@@ -261,15 +262,39 @@ package PIH {
   
   sub duplicate_local_files {
     index_files('local');
+
+    my @common_sizes = ();
     my $sth = $dbh->prepare('
-      SELECT outer.filename, outer.md5_b64 FROM local_photos AS outer
-      WHERE outer.md5_b64 IN (
-        SELECT inner.md5_b64 FROM local_photos AS inner
-        GROUP BY inner.md5_b64
-        HAVING count(1) > 1
+      SELECT id, filename FROM local_photos
+      WHERE size IN (
+        SELECT size FROM local_photos
+        GROUP BY size HAVING COUNT(*) > 1
       )
-      ORDER BY outer.md5_b64
     ');
+    $sth->execute;
+    while (my ($id, $filename) = $sth->fetchrow_array) {
+      my $md5 = md5_file($filename);
+      $dbh->do('UPDATE local_photos SET md5_b64 = ? WHERE id = ? AND filename = ?', undef, $md5, $id, $filename);
+    }
+    $sth->finish;
+
+    $sth = $dbh->prepare('
+      SELECT id, filename, size, md5_b64 FROM local_photos
+      WHERE md5_b64 IS NOT NULL AND md5_b64 IN (
+        SELECT md5_b64 FROM local_photos
+        WHERE md5_b64 IS NOT NULL
+        GROUP BY md5_b64 HAVING COUNT(*) > 1
+      )
+      ORDER BY md5_b64, filename ASC
+    ');
+    $sth->execute;
+
+    my @dups = ();
+    while (my ($id, $filename, $size, $md5) = $sth->fetchrow_array) {
+      push @dups, { id => $id, filename => $filename, size => $size, md5_b64 => $md5 };
+    }
+
+    return @dups;
   }
   
   sub remote_files_count {
@@ -425,4 +450,3 @@ package PIH {
 }
 
 1;
-
