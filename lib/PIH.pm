@@ -9,7 +9,7 @@ package PIH {
   use Fcntl ':seek';
   use autodie;
 
-  my $file_extensions = 'jpg|jpeg|tiff|tif|raw|gif|png|psd|heif|heic|webp|bmp|svg|eps|ai|avi|mp5|mpg|mov|mkv|wmv|webm|flv|3gp';
+  my $file_extensions = 'jpg|jpeg|tiff|tif|raw|gif|png|psd|heif|heic|webp|bmp|svg|eps|ai|avi|mp4|mpg|mov|mkv|wmv|webm|flv|3gp';
 
   my $username = getlogin() || scalar getpwuid($<) || $ENV{LOGNAME} || $ENV{USER};
   my $homedir  = $ENV{'HOME'} || "/home/$username";
