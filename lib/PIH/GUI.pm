@@ -61,30 +61,30 @@ package PIH::GUI {
     my $window = Gtk3::Window->new('toplevel');
     $window->set_title('Photo Import Helper by DMS');
     $window->set_position('center');
-    $window->set_default_size(500,300);
+    $window->set_default_size(500,240);
     $window->set_border_width(10);
  
     my @buttons = ();
-    #{ 
-    #  my $button = Gtk3::Button->new('Check My Computer for Duplicates');
-    #  $button->signal_connect(clicked => \&check_for_duplicates);
-    #  push @buttons, $button;
-    #}
     {
-      my $button = Gtk3::Button->new('Process and Import from Memory Card');
+      my $button = Gtk3::Button->new('Process & Import from Memory Card');
       $button->signal_connect(clicked => sub { import_from_memory_card($window) });
       push @buttons, $button;
     }
-    #{
-    #  my $button = Gtk3::Button->new('Pick and Choose Import from Memory Card');
-    #  $button->signal_connect(clicked => \&import_cherry_pick);
-    #  push @buttons, $button;
-    #}
     {
-      my $button = Gtk3::Button->new('Cleanup Memory Card');
+      my $button = Gtk3::Button->new('Analyze & Cleanup Memory Card');
       $button->signal_connect(clicked => sub { clean_memory_card($window) });
       push @buttons, $button;
     }
+    {
+      my $button = Gtk3::Button->new('Organize Media on My Computer');
+      $button->signal_connect(clicked => sub { organize_my_computer(parent => $window) });
+      push @buttons, $button;
+    }
+#    {
+#      my $button = Gtk3::Button->new('Help');
+#      $button->signal_connect(clicked => sub { show_help($window) });
+#      push @buttons, $button;
+#    }
     {
       my $button = Gtk3::Button->new('Quit');
       $button->signal_connect(clicked => \&quit);
@@ -107,7 +107,7 @@ package PIH::GUI {
   sub clean_memory_card {
     clean_or_import(clean => 1);
   }
-  
+
   sub clean_or_import (%params) {
     my $clean  = $params{'clean'};
     my $import = $params{'import'};
@@ -265,38 +265,9 @@ package PIH::GUI {
     );
   }
 
-=crap
-  sub import_from_memory_card_continue_old (%params) {
-    my $file_list = $params{'files'};   
-    my $count     = scalar @$file_list;
-    
-    my $dial = Gtk3::Dialog->new('Import from Memory Card', $params{'parent'}, 'modal');
-    my $hbox = Gtk3::Box->new('horizontal', 8);
-    $hbox->set_border_width(8);
-    
-    my $text = Gtk3::Label->new;
-    $text->set_text("Found $count files on memory card that have not been imported yet.");
-    $hbox->add($text);
-    
-    $dial->add_button('Cancel', 0);
-    $dial->add_button('Import All', 1);
-    $dial->add_button('Pick & Choose', 2);
-    $dial->show_all;
-    $dial->signal_connect(response => sub ($dial_copy, $response, @slurp) {
-      $dial->destroy;
-      if ($response == 1) {
-        #import_from_memory_card_all(files => $file_list);
-      } elsif ($response == 2) {
-        import_from_memory_card_pick_and_choose(files => $file_list);
-      }
-    });
-    $dial->get_content_area->add($hbox);
-    $dial->show_all;
-  }
-=cut
-  
   sub import_from_memory_card_pick_and_choose (%params) {
     return import_from_memory_card_scrollwindow(%params);
+=dead
     my $file_list = $params{'files'};
     
     # Make window
@@ -327,6 +298,7 @@ package PIH::GUI {
     
     $window->add($vbox);
     $window->show_all;
+=cut
   }
   
   sub import_from_memory_card_scrollwindow (%params) {
@@ -599,6 +571,215 @@ package PIH::GUI {
         return TIMEOUT_REPEAT;
       });
     }
+  }
+
+  sub organize_my_computer (%params) {
+    my $dial = Gtk3::Dialog->new('Scanning', $params{'parent'}, 'modal');
+    my $hbox = Gtk3::Box->new('horizontal', 8);
+    $hbox->set_border_width(8);
+
+    my $text = Gtk3::Label->new;
+    $text->set_text('Please wait... getting ready...');
+    $hbox->add($text);
+    $dial->get_content_area->add($hbox);
+    $dial->show_all;
+
+    my $last_message;
+    my $fork = fork;
+    if (defined $fork and $fork == 0) {
+      # In Child Process
+      my $message_printer = sub ($status, $message, @slurp) {
+        PIH::put_ipc_message({ status => $status, user_message => $message, @slurp });
+      };
+
+      $message_printer->('WORKING', 'Scanning computer');
+      PIH::index_files('local',  sub {
+        my $sub_message = shift || '';
+        $sub_message .= '...';
+        $message_printer->('WORKING', 'Scanning computer ' . $sub_message);
+      });
+      sleep 1;
+
+      $message_printer->('WORKING', 'Analyzing...');
+      my $data = { duplicate_files_on_local => [PIH::duplicate_local_files()] };
+      sleep 1;
+
+      # Done
+      $message_printer->('DONE', 'Done.', data => $data);
+      exit;
+    } else {
+      # parent
+      Glib::Timeout->add(500, sub {
+        my @messages = PIH::get_ipc_messages();
+        if (@messages) {
+          my $message = pop @messages;
+          $last_message = $message;
+          $text->set_text($message->{'user_message'});
+          if ($message->{'status'} eq 'DONE') {
+
+            # Duplicate local files
+            my @dups            = $last_message->{'data'}{'duplicate_files_on_local'}->@*;
+            my $duplicate_count = scalar @dups;
+
+            if ($duplicate_count == 0) {
+              $text->set_text("No duplicates found.");
+              $dial->add_button('OK', 1);
+              $dial->signal_connect(response => sub { $dial->destroy; });
+              return TIMEOUT_FINISH;
+            }
+
+            # Advise user and get response
+            # Rearrange duplicates, key by md5
+            my %dups_keyed;
+            foreach my $dup_file (@dups) {
+              my $md5 = $dup_file->{md5_b64};
+              if (exists $dups_keyed{$md5}) {
+                push $dups_keyed{$md5}->@*, $dup_file;
+              } else {
+                $dups_keyed{$md5} = [$dup_file];
+              }
+            }
+            my $dup_set_count = scalar keys %dups_keyed;
+
+            use Data::Dumper; warn Dumper { duplicates => \%dups_keyed };
+            $text->set_text("There are $dup_set_count sets of duplicate files on your computer.\n"
+               . "Press Continue to preview them and mark for deletion."
+            );
+            $dial->add_button('Cancel'  , 0);
+            $dial->add_button('Continue', 1);
+            $dial->show_all;
+            $dial->signal_connect(response => sub ($dial_copy, $response_ok, @slurp) {
+              $dial->destroy;
+              organize_my_computer_duplicates_scrollwindow(
+                #window => $window,
+                files => \%dups_keyed,
+              ) if $response_ok;
+            });
+            return TIMEOUT_FINISH;
+          }
+        }
+        return TIMEOUT_REPEAT;
+      });
+    }
+  }
+
+  sub organize_my_computer_duplicates_scrollwindow (%params) {
+    my $file_list = $params{'files'};
+
+    my $window=Gtk3::Window->new('toplevel');
+    $window->set_title('Remove Duplicates from My Computer');
+    $window->set_default_size(800*0.9,600*0.9);
+
+    # the scrolled window
+    my $scrolled_window = Gtk3::ScrolledWindow->new();
+    $scrolled_window->set_border_width(10);
+
+    # there is always the scrollbar (otherwise: automatic - only if needed - or never
+    $scrolled_window->set_policy('automatic', 'always');
+
+    my $vbox_outer = Gtk3::Box->new('vertical', 8);
+    my $vbox       = Gtk3::Box->new('vertical', 8);
+    $vbox->set_border_width(8);
+
+    my $blank_image_pixbuf = Gtk3::Gdk::Pixbuf->new('rgb', FALSE, 8, 640/4, 480/4);
+    $blank_image_pixbuf->fill(0xAAAAAAAA);
+
+    my $movie_image_pixbuf = eval {
+      Gtk3::Gdk::Pixbuf
+        ->new_from_file("$FindBin::Bin/../icon/movie_reel.png")
+        ->scale_simple(640/4, 480/4, 'bilinear');
+    } or $blank_image_pixbuf;
+
+    my $checkboxes = [];
+    my $toggle_checkbox = sub ($id, $type) {
+      $checkboxes->[$id]{$type} = !$checkboxes->[$id]{$type};
+    };
+
+    my @images = ();
+    {
+      for my $key (keys %$file_list) {
+        my $file_hbox = Gtk3::Box->new('horizontal', 2);
+        my $image     = Gtk3::Image->new_from_pixbuf($blank_image_pixbuf);
+        $file_hbox->add($image);
+
+        my $right_box = Gtk3::Box->new('vertical', 2);
+        #my $label_copies = Gtk3::Label->new("Copies: " . scalar $file_list->{$key}->@*);
+        #$label_copies->set_halign('start');
+        #$right_box->add($label_copies);
+        my $copy_num = 0;
+        foreach my $file ($file_list->{$key}->@*) {
+          $copy_num++;
+          my ($filename) = $file->{filename} =~ m{/home/[^/]+/(.+)$};
+          my $label = Gtk3::Label->new("Copy $copy_num:\n$filename");
+          $label->set_halign('start');
+          $right_box->add($label);
+        }
+        $file_hbox->add($right_box);
+        $vbox->add($file_hbox);
+      }
+    }
+
+    # Add buttons
+    my $action_button_hbox = Gtk3::Box->new('horizontal', 2);
+    my $action_button_wait = Gtk3::Label->new('Loading, please wait...');
+    my $button_can = Gtk3::Button->new('Cancel');
+    my $button_pro = Gtk3::Button->new('Proceed');
+
+    # add the image to the scrolled window
+    $scrolled_window->add_with_viewport($vbox);
+    $scrolled_window->set_vexpand(1);
+
+    # add the scrolled window to the window
+    $vbox_outer->add($scrolled_window);
+    $window->add($vbox_outer);
+
+    $vbox_outer->add($action_button_wait);
+    my $add_buttons = sub {
+      $action_button_wait->destroy;
+      $action_button_hbox->pack_start($button_can, TRUE, TRUE, 0);
+      $action_button_hbox->pack_start($button_pro, TRUE, TRUE, 0);
+      $vbox_outer->add($action_button_hbox);
+      $vbox_outer->show_all;
+    };
+
+    # add actions
+    $button_can->signal_connect(clicked => sub { $window->destroy; });
+    $button_pro->signal_connect(clicked => sub {
+      my $summary = "Confirm the following action:";
+      my %count   = (move => 0, copy => 0, lose => 0);
+      foreach my $selection (@$checkboxes) {
+        $count{lose}++ if !$selection->{Import} and  $selection->{Remove};
+        $count{move}++ if  $selection->{Import} and  $selection->{Remove};
+        $count{copy}++ if  $selection->{Import} and !$selection->{Remove};
+      }
+      $summary .= "\n - $count{copy} photos will be copied to your computer" if $count{copy};
+      $summary .= "\n - $count{move} photos will be moved to your computer"  if $count{move};
+      $summary .= "\n - $count{lose} photos will be deleted entirely and permanently lost!" if $count{lose};
+
+      my $total_actions = $count{copy} + $count{move} + $count{lose};
+      $summary = "No actions selected." if $total_actions == 0;
+
+      my $dial = Gtk3::Dialog->new('Confirm', $window, 'modal');
+      my $hbox = Gtk3::Box->new('horizontal', 8);
+      $hbox->set_border_width(8);
+      my $text = Gtk3::Label->new($summary);
+      $hbox->add($text);
+      $dial->get_content_area->add($hbox);
+      $dial->add_button('Cancel', 0);
+      $dial->add_button('Confirm', 1) if $total_actions > 0;
+      $dial->signal_connect(response => sub ($mywindow, $myresponse, @slurp) {
+        unless ($myresponse) {
+          $dial->destroy;
+          return;
+        }
+        import_from_memory_card_process(files => $file_list, actions => $checkboxes);
+        $dial->destroy;
+      });
+      $dial->show_all();
+    });
+
+    # show window and start MainLoop
+    $window->show_all();
   }
   
   sub quit {

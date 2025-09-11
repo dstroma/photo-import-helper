@@ -133,6 +133,8 @@ package PIH {
       close $fh2;
       return undef;
     }
+    close $fh1;
+    close $fh2;
     
     # Sanity check
     unless (-s $file1 == -s $file2) {
@@ -274,7 +276,8 @@ package PIH {
     $sth->execute;
     while (my ($id, $filename) = $sth->fetchrow_array) {
       my $md5 = md5_file($filename);
-      $dbh->do('UPDATE local_photos SET md5_b64 = ? WHERE id = ? AND filename = ?', undef, $md5, $id, $filename);
+      $dbh->do('UPDATE local_photos SET md5_b64 = ? WHERE id = ? AND filename = ?', undef, $md5, $id, $filename)
+        or warn "Database error - PID $$ - cannot UPDATE WHERE id=$id AND filename=$filename";
     }
     $sth->finish;
 
