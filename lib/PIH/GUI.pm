@@ -354,10 +354,10 @@ package PIH::GUI {
     my @images = ();
     {
       my $i = 0; 
-      while ($i <= $#$file_list) {
+      while ($i <= $#$files) {
         my $hbox = Gtk3::Box->new('horizontal', 8);
         for (1..4) {
-          next if $i > $#$file_list;
+          next if $i > $#$files;
           my $vbox_inner = Gtk3::Box->new('vertical', 2);
           
           # Checkboxes
@@ -371,12 +371,12 @@ package PIH::GUI {
           }
           push @$checkboxes, { Import => 0, Remove => 0 };
           
-          #my $pixbuf = Gtk3::Gdk::Pixbuf->new_from_file($file_list->[$i]);
+          #my $pixbuf = Gtk3::Gdk::Pixbuf->new_from_file($files->[$i]);
           #my $thumb  = $pixbuf->scale_simple(640/4, 480/4, 'bilinear');
           my $image  = Gtk3::Image->new_from_pixbuf($blank_image_pixbuf);
           #my $image  = Gtk3::Image->new_from_gicon('broken', 640/4, 480/4);
           
-          my $filename = $file_list->[$i];
+          my $filename = $files->[$i];
           my $image_eventbox = Gtk3::EventBox->new;
           $image_eventbox->add($image);
           $image_eventbox->signal_connect('button-press-event' => sub ($widget, $event) {
@@ -448,7 +448,7 @@ package PIH::GUI {
           $dial->destroy;
           return;
         }
-        import_from_memory_card_process(files => $file_list, actions => $checkboxes);
+        import_from_memory_card_process(files => $files, actions => $checkboxes);
         $dial->destroy;
       });
       $dial->show_all();
@@ -460,15 +460,15 @@ package PIH::GUI {
     # Load photos
     my $i = 0;
     Glib::Timeout->add(100, sub {
-      if ($file_list->[$i] !~ m/MOV|MP4$/i) {
-        my $pixbuf = Gtk3::Gdk::Pixbuf->new_from_file($file_list->[$i]);
+      if ($files->[$i] !~ m/MOV|MP4$/i) {
+        my $pixbuf = Gtk3::Gdk::Pixbuf->new_from_file($files->[$i]);
         my $thumb  = $pixbuf->scale_simple(640/4, 480/4, 'bilinear');
         $images[$i]->set_from_pixbuf($thumb);
       } else {
         $images[$i]->set_from_pixbuf($movie_image_pixbuf);
       }
       $i++;
-      if ($i > $#$file_list) {
+      if ($i > $#$files) {
         $add_buttons->();
         return TIMEOUT_FINISH;
       } else {
@@ -495,10 +495,10 @@ package PIH::GUI {
     
       for my $i (0 .. $#$files) {
         if ($actions->[$i]{Import}) {
-          push @action_list, sub { PIH::import_file($file_list->[$i]) };
+          push @action_list, sub { PIH::import_file($files->[$i]) };
         }
         if ($actions->[$i]{Remove}) {
-          push @action_list, sub { PIH::delete_file($file_list->[$i]) };
+          push @action_list, sub { PIH::delete_file($files->[$i]) };
         }
       }
       
