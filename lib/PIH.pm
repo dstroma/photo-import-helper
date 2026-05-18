@@ -1,4 +1,5 @@
 use v5.34;
+use Sublike::Extended 0.29 'sub'; # Named params
 use experimental 'signatures';
 package PIH {
   use File::Find::Rule;
@@ -9,7 +10,7 @@ package PIH {
   use Fcntl ':seek';
   use autodie;
 
-  my $file_extensions = 'jpg|jpeg|tiff|tif|raw|gif|png|psd|heif|heic|webp|bmp|svg|eps|ai|avi|mp4|mpg|mov|mkv|wmv|webm|flv|3gp';
+  my $file_extensions = 'jpg|jpeg|tiff|tif|raw|gif|dng|png|psd|heif|heic|webp|bmp|svg|eps|ai|avi|mp4|mpg|mov|mkv|wmv|webm|flv|3gp';
 
   my $username = getlogin() || scalar getpwuid($<) || $ENV{LOGNAME} || $ENV{USER};
   my $homedir  = $ENV{'HOME'} || "/home/$username";
@@ -359,24 +360,20 @@ package PIH {
     return @filename_list;
   }
   
-  sub copy_new_remote_photos_to_local (%params) {
-    my $path   = $params{'path'};
-    my $rename = $params{'rename'};
-    my $delete = $params{'delete'};
-    
+  sub copy_new_remote_photos_to_local (:$path, :$rename, :$delete = undef) {
     if ($delete) {
-      die 'invalid delete param' unless $delete eq 'delete' or $delete eq 'trash';
+      die 'invalid delete flag' unless $delete eq 'delete' or $delete eq 'trash';
     }
     
     my @new_files = remote_files_not_on_local();
-      
+
     foreach my $file (@new_files) {
       my $new_file = undef;
       
       # copy
       copy_file($file, $new_file)
         or die 'Cannot copy file!';
-      
+
       # Verify
       verify_identical($file, $new_file)
         or die 'Cannot verify file!';
@@ -385,10 +382,8 @@ package PIH {
     }
   }  
   
-  sub delete_file (%params) {
-    my $filename = $params{'filename'};   
-    my $ok = my_unlink($filename);
-    return $ok;
+  sub delete_file (:$filename) {
+    my_unlink($filename);
   }
   
   sub import_file ($from, $to = undef) {

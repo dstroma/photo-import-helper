@@ -1,4 +1,5 @@
 use v5.34;
+use Sublike::Extended 0.29 'sub'; # Named params
 use experimental 'signatures';
 package PIH::GUI {
   use Gtk3 -init;
@@ -19,13 +20,7 @@ package PIH::GUI {
   #  my $message = $params{'message'};
   #}
   
-  sub show_dialog (%params) {
-    my $title   = $params{'title'}   // '';
-    my $message = $params{'message'} // '';
-    my $buttons = $params{'buttons'} // [];
-    my $parent  = $params{'parent'};
-   #my $modal   = $params{'modal'} ? 1 : 0;
- 
+  sub show_dialog (:$title //= '', :$message //= '', :$buttons //= '', :$parent) {
     # Cleanup
     die 'show_dialog(buttons => [])'
       if $buttons and not ref $buttons eq 'ARRAY';
@@ -108,10 +103,7 @@ package PIH::GUI {
     clean_or_import(clean => 1);
   }
   
-  sub clean_or_import (%params) {
-    my $clean  = $params{'clean'};
-    my $import = $params{'import'};
-    
+  sub clean_or_import (:$clean, :$import) {
     die 'Usage: clean_or_import("clean|import" => 1)'
       unless $clean xor $import;
     
@@ -241,9 +233,8 @@ package PIH::GUI {
     }
   }
   
-  sub import_from_memory_card_continue (%params) {
-    my $file_list = $params{'files'};   
-    my $count     = scalar @$file_list;
+  sub import_from_memory_card_continue (:$files) {
+    my $count = scalar @$files;
     
     show_dialog(
       title   => 'Import from Memory Card',
@@ -258,7 +249,7 @@ package PIH::GUI {
         { label   => 'Pick & Choose',
           action => sub ($dial, @) {
             $dial->destroy;
-            import_from_memory_card_pick_and_choose(files => $file_list);
+            import_from_memory_card_pick_and_choose(files => $files);
           }
         },
       ],
@@ -295,10 +286,10 @@ package PIH::GUI {
   }
 =cut
   
-  sub import_from_memory_card_pick_and_choose (%params) {
-    return import_from_memory_card_scrollwindow(%params);
-    my $file_list = $params{'files'};
-    
+  sub import_from_memory_card_pick_and_choose (:$files) {
+    return import_from_memory_card_scrollwindow(files => $files);
+
+=dead
     # Make window
     my $window = Gtk3::Window->new;
     $window->set_default_size(800*.9,600*.9);
@@ -327,11 +318,10 @@ package PIH::GUI {
     
     $window->add($vbox);
     $window->show_all;
+=cut
   }
   
-  sub import_from_memory_card_scrollwindow (%params) {
-    my $file_list = $params{'files'};
-   
+  sub import_from_memory_card_scrollwindow (:$files) {
     my $window=Gtk3::Window->new('toplevel');
     $window->set_title('Pick & Choose from Memory Card');
     $window->set_default_size(800*0.9,600*0.9);
@@ -487,10 +477,7 @@ package PIH::GUI {
     });
   }
   
-  sub import_from_memory_card_process (%params) {
-    my $file_list = $params{'files'};
-    my $actions   = $params{'actions'};
-
+  sub import_from_memory_card_process (:$files, :$actions) {
     my $dial = Gtk3::Dialog->new('Processing', undef, 'modal');
     my $hbox = Gtk3::Box->new('horizontal', 8);
     $hbox->set_border_width(8);
@@ -506,7 +493,7 @@ package PIH::GUI {
       # child
       my @action_list = ();
     
-      for my $i (0 .. $#$file_list) {
+      for my $i (0 .. $#$files) {
         if ($actions->[$i]{Import}) {
           push @action_list, sub { PIH::import_file($file_list->[$i]) };
         }
@@ -538,9 +525,7 @@ package PIH::GUI {
     });
   }
    
-  sub cleanup_memory_card_continue (%params) {
-    my $file_list = $params{'files'};
-
+  sub cleanup_memory_card_continue (:$files) {
     my $dial = Gtk3::Dialog->new('Memory Card Cleanup', $params{'parent'}, 'modal');
     my $hbox = Gtk3::Box->new('horizontal', 8);
     $hbox->set_border_width(8);
@@ -557,7 +542,7 @@ package PIH::GUI {
       my $message_printer = \&PIH::put_ipc_message;
       $message_printer->({ status => 'WORKING'});
       
-      foreach my $file (@$file_list) {
+      foreach my $file (@$files) {
         warn "Simulating delete of $file";
         sleep 1;
       }
