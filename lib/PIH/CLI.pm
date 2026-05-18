@@ -8,12 +8,12 @@ package PIH::CLI {
   }
 
   sub index_remote_files {
-    say 'Indexing removable media directory: ' . PIH::debug_remote_photos_dir;
+    say 'Indexing removable media directory';
     my $rfiles = PIH::index_files('remote');
     say "Remote files found: $rfiles";
     say '';
 
-    say 'Indexing local media directory: ' . PIH::debug_local_photos_dir;
+    say 'Indexing local media directory';
     my $lfiles = PIH::index_files('local');
     say "Local files found: $lfiles";
     say '';

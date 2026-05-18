@@ -5,8 +5,8 @@ package PIH::GUI {
   use Glib;
   use FindBin;
   
-  use constant FALSE => !1;
-  use constant TRUE  => !0;
+  use constant FALSE => !!0;
+  use constant TRUE  => !!1;
   use constant TIMEOUT_REPEAT => TRUE();
   use constant TIMEOUT_FINISH => FALSE();
   use constant IS_RUNNING => 0;

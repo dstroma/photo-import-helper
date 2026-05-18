@@ -22,25 +22,18 @@ package PIH {
   
   #####################################################################
 
-  sub debug_local_photos_dir {
-    $local_photos_dir;
-  }
-
-  sub debug_remote_photos_dir {
-    return $remote_photos_dir if $remote_photos_dir;
+  sub debug_info {
     my @dcims = find_dcims();
-    warn "multiple digical camera devices!" if @dcims > 1;
-    return $dcims[0];
+    my @info  = ();
+    push @info, (local_photos_dir  => $local_photos_dir);
+    push @info, (remote_photos_dir => $_               ) for @dcims;
+    return \@info;
   }
 
-  sub set_local_photos_dir  ($newdir) { $local_photos_dir  = $newdir; }
-  sub set_remote_photos_dir ($newdir) { $remote_photos_dir = $newdir; }
-  
-  sub get_last_char { substr($_[0], -1, 1) }
-  
-  sub my_unlink {
-    warn "[simulate] unlink $_[0]\n";
-  }
+  sub set_local_photos_dir  ($newdir) { $local_photos_dir  = $newdir     }
+  sub set_remote_photos_dir ($newdir) { $remote_photos_dir = $newdir     }
+  sub get_last_char                   { substr($_[0], -1, 1)             }
+  sub my_unlink                       { warn "[simulate] unlink $_[0]\n" }
   
   sub oldest_time ($file) {
     my @stat = stat($file);
